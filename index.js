@@ -2,15 +2,9 @@ const mineflayer = require('mineflayer');
 const { pathfinder, Movements, goals } = require('mineflayer-pathfinder');
 const pvp = require('mineflayer-pvp').plugin;
 const collectBlock = require('mineflayer-collectblock').plugin;
-const https = require('https'); // Standard Built-in module (No errors)
+const https = require('https');
 
 const aiKey = process.env.GEMINI_API_KEY;
-
-if (aiKey) {
-  console.log("🔥 GEMINI API KEY DETECTED! HTTPS NATIVE MODE ACTIVE 🔥");
-} else {
-  console.log("❌ Error: GEMINI_API_KEY nahi mili Railway variables mein! ❌");
-}
 
 const bot = mineflayer.createBot({
   host: process.env.SERVER_IP,
@@ -34,7 +28,7 @@ bot.on('spawn', () => {
   startIdleBehavior();
 });
 
-// NATIVE HTTPS AI CONTROLLER
+// PERFECT REFINED HTTPS AI CONTROLLER
 async function aiBrainController(playerName, userMessage) {
   if (!aiKey) {
     bot.chat("Bhai, meri API Key missing hai Railway variables mein!");
@@ -54,8 +48,16 @@ async function aiBrainController(playerName, userMessage) {
   Example reply: "Haan bhai aaya tere paas! [ACTION:FOLLOW]"
   Keep your reply casual, short (1-2 sentences max), and friendly like a real gaming teammate.`;
 
+  // Refined correct structure for Gemini API payload
   const postData = JSON.stringify({
-    contents: [{ parts: [{ text: `${systemPrompt}\n\nUser said: ${userMessage}` }] }]
+    contents: [
+      {
+        role: "user",
+        parts: [
+          { text: `${systemPrompt}\n\nUser Message: ${userMessage}` }
+        ]
+      }
+    ]
   });
 
   const options = {
@@ -74,7 +76,9 @@ async function aiBrainController(playerName, userMessage) {
     res.on('end', () => {
       try {
         const data = JSON.parse(body);
-        if (data.candidates && data.candidates[0].content.parts[0].text) {
+        
+        // Checking nested safety structures
+        if (data.candidates && data.candidates[0] && data.candidates[0].content && data.candidates[0].content.parts && data.candidates[0].content.parts[0]) {
           let reply = data.candidates[0].content.parts[0].text.trim();
 
           // Action Processing
@@ -97,17 +101,24 @@ async function aiBrainController(playerName, userMessage) {
 
           bot.chat(reply.trim());
         } else {
-          bot.chat("Uff, dimaag thoda ghoom gaya!");
+          // If response came but was an API error or blocked content
+          if(data.error) {
+             console.error("Gemini API Error Detail:", data.error.message);
+             bot.chat(`Google API Error: ${data.error.message}`);
+          } else {
+             bot.chat("Uff, dimaag thoda ghoom gaya!");
+          }
         }
       } catch (e) {
         console.error("JSON Parsing error:", e);
+        bot.chat("Kuch samajh nahi aaya bhai!");
       }
     });
   });
 
   req.on('error', (e) => {
     console.error("HTTPS Request Error:", e);
-    bot.chat("Bhai, server se connection toot gaya!");
+    bot.chat("Bhai, network lag ho gaya!");
   });
 
   req.write(postData);
@@ -209,4 +220,4 @@ bot.on('chat', async (username, message) => {
   if (username === bot.username) return;
   aiBrainController(username, message);
 });
-    
+      
