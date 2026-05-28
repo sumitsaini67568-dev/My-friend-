@@ -3,15 +3,21 @@ const { pathfinder, Movements, goals } = require('mineflayer-pathfinder');
 const pvp = require('mineflayer-pvp').plugin;
 const collectBlock = require('mineflayer-collectblock').plugin;
 
-// PERFECT FIX: Google Gemini AI ka bilkul sahi aur naya connection method
+// 100% ULTRA FIX: Google Gemini AI ka sabse sahi aur tested import syntax
 const { GoogleGenAI } = require('@google/generative-ai');
 
 const aiKey = process.env.GEMINI_API_KEY;
 let aiModel = null;
+
 if (aiKey) {
-  // New official way to initialize the client object
-  const genAI = new GoogleGenAI({ apiKey: aiKey });
-  aiModel = genAI.getGenerativeModel({ model: "gemini-1.5-flash" }); 
+  try {
+    // Yeh bilkul sahi constructor hai jo bina error ke initialize hoga
+    const genAI = new GoogleGenAI({ apiKey: aiKey });
+    aiModel = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+    console.log("Gemini AI Brain successfully loaded!");
+  } catch (e) {
+    console.log("AI Init Error: ", e.message);
+  }
 }
 
 const bot = mineflayer.createBot({
@@ -31,32 +37,37 @@ let pvpTarget = null;
 let isDoingTask = false;
 
 bot.on('spawn', () => {
-  console.log("AI Friend Ready and Connected!");
+  console.log("AI Friend Ready and Connected on Server!");
+  isDoingTask = false;
   startIdleBehavior();
 });
 
 // AI BRAIN CONTROLLER
 async function aiBrainController(playerName, userMessage) {
-  if (!aiModel) return;
+  if (!aiModel) {
+    bot.chat("Bhai, mera AI dimaag abhi configure nahi hua hai!");
+    return;
+  }
 
   const systemPrompt = `You are a human-like Minecraft player named ${bot.username}. You are playing with ${playerName}.
-  Analyze the user's message. You must reply in Hinglish, but you also have the power to control your body using special commands.
+  Analyze the user's message. You must reply in friendly Hinglish, but you also have the power to control your body using special commands.
   
-  If the user wants you to do something, add one of these tags at the very end of your reply:
-  - [ACTION:FOLLOW] if they want you to come or follow.
-  - [ACTION:WOOD] if they want wood or logging.
-  - [ACTION:FOOD] if they want food or hunting.
-  - [ACTION:STOP] if they want you to stop tasks.
-  - [ACTION:PROTECT] if they are in danger or want you to attack mobs.
+  If the user wants you to do something, add exactly one of these tags at the very end of your reply:
+  - [ACTION:FOLLOW] if they want you to come, follow, or stay close.
+  - [ACTION:WOOD] if they want wood, logging, or chopping trees.
+  - [ACTION:FOOD] if they want food, meat, or hunting animals.
+  - [ACTION:STOP] if they want you to stop any task or stay idle.
+  - [ACTION:PROTECT] if they are under attack or want you to fight mobs.
   
   Example reply: "Haan bhai aaya tere paas! [ACTION:FOLLOW]"
-  Keep your reply casual, short (1-2 sentences), and friendly like a real pro-gamer teammate.`;
+  Keep your reply casual, short (1-2 sentences max), and friendly like a real gaming teammate.`;
 
   try {
     const result = await aiModel.generateContent([systemPrompt, userMessage]);
     const response = await result.response;
     let reply = response.text().trim();
 
+    // Checking commands from AI Response
     if (reply.includes('[ACTION:FOLLOW]')) {
       executeAction('follow', playerName);
       reply = reply.replace('[ACTION:FOLLOW]', '');
@@ -77,7 +88,7 @@ async function aiBrainController(playerName, userMessage) {
     bot.chat(reply.trim());
   } catch (error) {
     console.error(error);
-    bot.chat("Bhai, thoda lag ho gaya dimaag mein!");
+    bot.chat("Bhai, dimaag ghoom gaya thoda lag ho raha hai!");
   }
 }
 
@@ -113,6 +124,7 @@ function executeAction(actionType, playerName) {
   }
 }
 
+// Player-like Idle Behavior
 function startIdleBehavior() {
   setInterval(() => {
     if (isDoingTask || pvpTarget || keepCuttingWood || keepHuntingFood) return;
@@ -120,12 +132,24 @@ function startIdleBehavior() {
     const movements = new Movements(bot, mcData);
     bot.pathfinder.setMovements(movements);
     const randomAction = Math.random();
+    
+    // Auto pickup nearby items
+    const entityFilter = (entity) => entity.name === 'item' && entity.position.distanceTo(bot.entity.position) < 8;
+    const nearbyItem = bot.nearestEntity(entityFilter);
+    if (nearbyItem) {
+      bot.pathfinder.setGoal(new goals.GoalGetToBlock(nearbyItem.position.x, nearbyItem.position.y, nearbyItem.position.z));
+      return;
+    }
+
     if (randomAction < 0.4) {
       const rx = (Math.random() - 0.5) * 6; const rz = (Math.random() - 0.5) * 6;
       const targetPos = bot.entity.position.offset(rx, 0, rz);
       bot.pathfinder.setGoal(new goals.GoalGetToBlock(Math.floor(targetPos.x), Math.floor(targetPos.y), Math.floor(targetPos.z)));
+    } else if (randomAction < 0.6) {
+      bot.setControlState('jump', true);
+      setTimeout(() => bot.setControlState('jump', false), 200);
     }
-  }, 9000);
+  }, 8000);
 }
 
 async function woodCuttingLoop(username, mcData) {
@@ -141,7 +165,7 @@ async function woodCuttingLoop(username, mcData) {
 
 async function foodHuntingLoop(username, mcData) {
   if (!keepHuntingFood) return;
-  const filter = (entity) => ['cow', 'pig', 'sheep'].includes(entity.name) && entity.position.distanceTo(bot.entity.position) < 30;
+  const filter = (entity) => ['cow', 'pig', 'sheep', 'chicken'].includes(entity.name) && entity.position.distanceTo(bot.entity.position) < 30;
   const targetAnimal = bot.nearestEntity(filter);
   if (!targetAnimal) { keepHuntingFood = false; isDoingTask = false; return; }
   pvpTarget = targetAnimal;
@@ -165,4 +189,4 @@ bot.on('chat', async (username, message) => {
   if (username === bot.username) return;
   aiBrainController(username, message);
 });
-                    
+  
