@@ -2,11 +2,12 @@ const mineflayer = require('mineflayer');
 const { pathfinder, Movements, goals } = require('mineflayer-pathfinder');
 const pvp = require('mineflayer-pvp').plugin;
 const collectBlock = require('mineflayer-collectblock').plugin;
+const https = require('https'); // Standard Built-in module (No errors)
 
 const aiKey = process.env.GEMINI_API_KEY;
 
 if (aiKey) {
-  console.log("🔥 GEMINI API KEY DETECTED! HTTP MODE ACTIVE 🔥");
+  console.log("🔥 GEMINI API KEY DETECTED! HTTPS NATIVE MODE ACTIVE 🔥");
 } else {
   console.log("❌ Error: GEMINI_API_KEY nahi mili Railway variables mein! ❌");
 }
@@ -33,7 +34,7 @@ bot.on('spawn', () => {
   startIdleBehavior();
 });
 
-// FOOLPROOF HTTP AI CONTROLLER (No libraries required)
+// NATIVE HTTPS AI CONTROLLER
 async function aiBrainController(playerName, userMessage) {
   if (!aiKey) {
     bot.chat("Bhai, meri API Key missing hai Railway variables mein!");
@@ -53,47 +54,64 @@ async function aiBrainController(playerName, userMessage) {
   Example reply: "Haan bhai aaya tere paas! [ACTION:FOLLOW]"
   Keep your reply casual, short (1-2 sentences max), and friendly like a real gaming teammate.`;
 
-  try {
-    // Calling Gemini directly via pure HTTP Fetch
-    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${aiKey}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: `${systemPrompt}\n\nUser said: ${userMessage}` }] }]
-      })
-    });
+  const postData = JSON.stringify({
+    contents: [{ parts: [{ text: `${systemPrompt}\n\nUser said: ${userMessage}` }] }]
+  });
 
-    const data = await response.json();
-    
-    if (data.candidates && data.candidates[0].content.parts[0].text) {
-      let reply = data.candidates[0].content.parts[0].text.trim();
-
-      // Action Processing
-      if (reply.includes('[ACTION:FOLLOW]')) {
-        executeAction('follow', playerName);
-        reply = reply.replace('[ACTION:FOLLOW]', '');
-      } else if (reply.includes('[ACTION:WOOD]')) {
-        executeAction('wood', playerName);
-        reply = reply.replace('[ACTION:WOOD]', '');
-      } else if (reply.includes('[ACTION:FOOD]')) {
-        executeAction('food', playerName);
-        reply = reply.replace('[ACTION:FOOD]', '');
-      } else if (reply.includes('[ACTION:STOP]')) {
-        executeAction('stop', playerName);
-        reply = reply.replace('[ACTION:STOP]', '');
-      } else if (reply.includes('[ACTION:PROTECT]')) {
-        executeAction('protect', playerName);
-        reply = reply.replace('[ACTION:PROTECT]', '');
-      }
-
-      bot.chat(reply.trim());
-    } else {
-      bot.chat("Uff, samajh nahi aaya bhai kya bola tune!");
+  const options = {
+    hostname: 'generativelanguage.googleapis.com',
+    path: `/v1beta/models/gemini-1.5-flash:generateContent?key=${aiKey}`,
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Content-Length': Buffer.byteLength(postData)
     }
-  } catch (error) {
-    console.error(error);
-    bot.chat("Dimaag thoda lag ho gaya, dobara bolna?");
-  }
+  };
+
+  const req = https.request(options, (res) => {
+    let body = '';
+    res.on('data', (chunk) => body += chunk);
+    res.on('end', () => {
+      try {
+        const data = JSON.parse(body);
+        if (data.candidates && data.candidates[0].content.parts[0].text) {
+          let reply = data.candidates[0].content.parts[0].text.trim();
+
+          // Action Processing
+          if (reply.includes('[ACTION:FOLLOW]')) {
+            executeAction('follow', playerName);
+            reply = reply.replace('[ACTION:FOLLOW]', '');
+          } else if (reply.includes('[ACTION:WOOD]')) {
+            executeAction('wood', playerName);
+            reply = reply.replace('[ACTION:WOOD]', '');
+          } else if (reply.includes('[ACTION:FOOD]')) {
+            executeAction('food', playerName);
+            reply = reply.replace('[ACTION:FOOD]', '');
+          } else if (reply.includes('[ACTION:STOP]')) {
+            executeAction('stop', playerName);
+            reply = reply.replace('[ACTION:STOP]', '');
+          } else if (reply.includes('[ACTION:PROTECT]')) {
+            executeAction('protect', playerName);
+            reply = reply.replace('[ACTION:PROTECT]', '');
+          }
+
+          bot.chat(reply.trim());
+        } else {
+          bot.chat("Uff, dimaag thoda ghoom gaya!");
+        }
+      } catch (e) {
+        console.error("JSON Parsing error:", e);
+      }
+    });
+  });
+
+  req.on('error', (e) => {
+    console.error("HTTPS Request Error:", e);
+    bot.chat("Bhai, server se connection toot gaya!");
+  });
+
+  req.write(postData);
+  req.end();
 }
 
 function executeAction(actionType, playerName) {
@@ -128,7 +146,6 @@ function executeAction(actionType, playerName) {
   }
 }
 
-// Normal Player-like Idle Behavior
 function startIdleBehavior() {
   setInterval(() => {
     if (isDoingTask || pvpTarget || keepCuttingWood || keepHuntingFood) return;
@@ -192,4 +209,4 @@ bot.on('chat', async (username, message) => {
   if (username === bot.username) return;
   aiBrainController(username, message);
 });
-  
+    
