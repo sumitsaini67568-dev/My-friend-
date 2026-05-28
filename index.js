@@ -28,7 +28,7 @@ bot.on('spawn', () => {
   startIdleBehavior();
 });
 
-// PERFECT REFINED HTTPS AI CONTROLLER
+// ULTRA FIXED AI CONTROLLER WITH PRO MODEL
 async function aiBrainController(playerName, userMessage) {
   if (!aiKey) {
     bot.chat("Bhai, meri API Key missing hai Railway variables mein!");
@@ -48,7 +48,6 @@ async function aiBrainController(playerName, userMessage) {
   Example reply: "Haan bhai aaya tere paas! [ACTION:FOLLOW]"
   Keep your reply casual, short (1-2 sentences max), and friendly like a real gaming teammate.`;
 
-  // Refined correct structure for Gemini API payload
   const postData = JSON.stringify({
     contents: [
       {
@@ -62,7 +61,7 @@ async function aiBrainController(playerName, userMessage) {
 
   const options = {
     hostname: 'generativelanguage.googleapis.com',
-    path: `/v1/models/gemini-1.5-flash:generateContent?key=${aiKey}`,
+    path: `/v1/models/gemini-1.5-pro:generateContent?key=${aiKey}`, // FIXED: gemini-1.5-flash se badalkar gemini-1.5-pro kiya
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -77,11 +76,9 @@ async function aiBrainController(playerName, userMessage) {
       try {
         const data = JSON.parse(body);
         
-        // Checking nested safety structures
         if (data.candidates && data.candidates[0] && data.candidates[0].content && data.candidates[0].content.parts && data.candidates[0].content.parts[0]) {
           let reply = data.candidates[0].content.parts[0].text.trim();
 
-          // Action Processing
           if (reply.includes('[ACTION:FOLLOW]')) {
             executeAction('follow', playerName);
             reply = reply.replace('[ACTION:FOLLOW]', '');
@@ -101,7 +98,6 @@ async function aiBrainController(playerName, userMessage) {
 
           bot.chat(reply.trim());
         } else {
-          // If response came but was an API error or blocked content
           if(data.error) {
              console.error("Gemini API Error Detail:", data.error.message);
              bot.chat(`Google API Error: ${data.error.message}`);
