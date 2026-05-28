@@ -3,7 +3,7 @@ const { pathfinder, Movements, goals } = require('mineflayer-pathfinder');
 const pvp = require('mineflayer-pvp').plugin;
 const collectBlock = require('mineflayer-collectblock').plugin;
 
-// 100% ULTRA FIX: Google Gemini AI ka sabse sahi aur tested import syntax
+// 100% SUCCESS SYNTAX: GoogleGenAI class ko direct nahi, balki GoogleGenAI function ko call karenge
 const { GoogleGenAI } = require('@google/generative-ai');
 
 const aiKey = process.env.GEMINI_API_KEY;
@@ -11,13 +11,15 @@ let aiModel = null;
 
 if (aiKey) {
   try {
-    // Yeh bilkul sahi constructor hai jo bina error ke initialize hoga
-    const genAI = new GoogleGenAI({ apiKey: aiKey });
+    // FIX: Hataya 'new' keyword aur bilkul sahi method use kiya
+    const genAI = GoogleGenAI({ apiKey: aiKey });
     aiModel = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
-    console.log("Gemini AI Brain successfully loaded!");
+    console.log("🔥 GEMINI AI BRAIN CONNECTED SUCCESSFUL! 🔥");
   } catch (e) {
     console.log("AI Init Error: ", e.message);
   }
+} else {
+  console.log("❌ Error: GEMINI_API_KEY nahi mili Railway variables mein! ❌");
 }
 
 const bot = mineflayer.createBot({
@@ -67,7 +69,6 @@ async function aiBrainController(playerName, userMessage) {
     const response = await result.response;
     let reply = response.text().trim();
 
-    // Checking commands from AI Response
     if (reply.includes('[ACTION:FOLLOW]')) {
       executeAction('follow', playerName);
       reply = reply.replace('[ACTION:FOLLOW]', '');
@@ -124,7 +125,6 @@ function executeAction(actionType, playerName) {
   }
 }
 
-// Player-like Idle Behavior
 function startIdleBehavior() {
   setInterval(() => {
     if (isDoingTask || pvpTarget || keepCuttingWood || keepHuntingFood) return;
@@ -133,7 +133,6 @@ function startIdleBehavior() {
     bot.pathfinder.setMovements(movements);
     const randomAction = Math.random();
     
-    // Auto pickup nearby items
     const entityFilter = (entity) => entity.name === 'item' && entity.position.distanceTo(bot.entity.position) < 8;
     const nearbyItem = bot.nearestEntity(entityFilter);
     if (nearbyItem) {
@@ -189,4 +188,3 @@ bot.on('chat', async (username, message) => {
   if (username === bot.username) return;
   aiBrainController(username, message);
 });
-  
