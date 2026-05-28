@@ -28,7 +28,7 @@ bot.on('spawn', () => {
   startIdleBehavior();
 });
 
-// ULTRA FIXED AI CONTROLLER WITH PRO MODEL
+// FIXED AI CONTROLLER WITH THE LATEST GEMINI 2.5 FLASH MODEL
 async function aiBrainController(playerName, userMessage) {
   if (!aiKey) {
     bot.chat("Bhai, meri API Key missing hai Railway variables mein!");
@@ -61,7 +61,7 @@ async function aiBrainController(playerName, userMessage) {
 
   const options = {
     hostname: 'generativelanguage.googleapis.com',
-    path: `/v1/models/gemini-1.5-pro:generateContent?key=${aiKey}`, // FIXED: gemini-1.5-flash se badalkar gemini-1.5-pro kiya
+    path: `/v1/models/gemini-2.5-flash:generateContent?key=${aiKey}`, // UPDATED TO GEMINI 2.5 FLASH
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -216,4 +216,4 @@ bot.on('chat', async (username, message) => {
   if (username === bot.username) return;
   aiBrainController(username, message);
 });
-      
+        
