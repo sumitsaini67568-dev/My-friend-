@@ -4,10 +4,10 @@ const pvp = require('mineflayer-pvp').plugin;
 
 // Read server details from Railway environment settings
 const bot = mineflayer.createBot({
-  host: process.env.SERVER_IP,
-  port: parseInt(process.env.SERVER_PORT) || 25565,
+  host: process.env.SERVER_IP,Heronrinesmp.aternos.me
+  port: parseInt(process.env.SERVER_PORT) || 42139,
   username: process.env.BOT_NAME || 'AIFriend',
-  version: process.env.MINECRAFT_VERSION || '1.20.1'
+  version: process.env.MINECRAFT_VERSION || '1.21.4'
 });
 
 // Load plugins for moving and fighting
