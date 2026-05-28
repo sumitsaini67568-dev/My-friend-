@@ -2,6 +2,14 @@ const mineflayer = require('mineflayer');
 const { pathfinder, Movements, goals } = require('mineflayer-pathfinder');
 const pvp = require('mineflayer-pvp').plugin;
 const collectBlock = require('mineflayer-collectblock').plugin;
+const { GoogleGenAI } = require('@google/generative-ai');
+
+const aiKey = process.env.GEMINI_API_KEY;
+let aiModel = null;
+if (aiKey) {
+  const genAI = new GoogleGenAI({ apiKey: aiKey });
+  aiModel = genAI.getGenerativeModel({ model: "gemini-pro" });
+}
 
 const bot = mineflayer.createBot({
   host: process.env.SERVER_IP,
@@ -10,208 +18,150 @@ const bot = mineflayer.createBot({
   version: process.env.MINECRAFT_VERSION || '1.20.1'
 });
 
-// Load all plugins
 bot.loadPlugin(pathfinder);
 bot.loadPlugin(pvp);
 bot.loadPlugin(collectBlock);
 
-// Flags to control the continuous loops
 let keepCuttingWood = false;
 let keepHuntingFood = false;
+let pvpTarget = null;
+let isDoingTask = false;
 
 bot.on('spawn', () => {
-  console.log(`${bot.username} has joined the server!`);
+  console.log("AI Friend Ready and Connected!");
+  startIdleBehavior();
 });
 
-bot.on('playerJoined', (player) => {
-  if (player.username !== bot.username) {
-    setTimeout(() => {
-      bot.chat(`Hey ${player.username}! Great to see you! Ready to explore?`);
-    }, 2000);
-  }
-});
+// AI BRAIN: Yeh function decide karega ki chat ka reply kya dena hai AUR bot ko kya action lena hai
+async function aiBrainController(playerName, userMessage) {
+  if (!aiModel) return;
 
-// Loop 1: Continuous Wood Cutting
-async function woodCuttingLoop(username, mcData) {
-  if (!keepCuttingWood) return;
-
-  const logTypes = ['oak_log', 'birch_log', 'spruce_log', 'jungle_log', 'acacia_log', 'dark_oak_log'];
-  const logIds = logTypes.map(name => mcData.blocksByName[name]?.id).filter(id => id !== undefined);
-  const logBlock = bot.findBlock({ matching: logIds, maxDistance: 32 });
-
-  if (!logBlock) {
-    bot.chat("Mujhe aas-paas koi aur tree nahi mil raha! Mujhe thoda aage le chalo.");
-    keepCuttingWood = false;
-    return;
-  }
-
-  const axe = bot.inventory.items().find(item => item.name.includes('axe'));
-  if (axe) { try { await bot.equip(axe, 'hand'); } catch (e) {} }
+  const systemPrompt = `You are a human-like Minecraft player named ${bot.username}. You are playing with ${playerName}.
+  Analyze the user's message. You must reply in Hinglish, but you also have the power to control your body using special commands.
+  
+  If the user wants you to do something, add one of these tags at the very end of your reply:
+  - [ACTION:FOLLOW] if they want you to come or follow.
+  - [ACTION:WOOD] if they want wood or logging.
+  - [ACTION:FOOD] if they want food or hunting.
+  - [ACTION:STOP] if they want you to stop tasks.
+  - [ACTION:PROTECT] if they are in danger or want you to attack mobs.
+  
+  Example reply: "Haan bhai aaya tere paas! [ACTION:FOLLOW]"
+  Keep your reply casual, short (1-2 sentences), and friendly like a real pro-gamer teammate.`;
 
   try {
-    const movements = new Movements(bot, mcData);
-    bot.pathfinder.setMovements(movements);
-    await bot.collectBlock.collect(logBlock);
-    setTimeout(() => { woodCuttingLoop(username, mcData); }, 1000);
-  } catch (err) {
-    setTimeout(() => { woodCuttingLoop(username, mcData); }, 2000);
+    const result = await aiModel.generateContent([systemPrompt, userMessage]);
+    const response = await result.response;
+    let reply = response.text().trim();
+
+    // Action execution based on AI's decision
+    if (reply.includes('[ACTION:FOLLOW]')) {
+      executeAction('follow', playerName);
+      reply = reply.replace('[ACTION:FOLLOW]', '');
+    } else if (reply.includes('[ACTION:WOOD]')) {
+      executeAction('wood', playerName);
+      reply = reply.replace('[ACTION:WOOD]', '');
+    } else if (reply.includes('[ACTION:FOOD]')) {
+      executeAction('food', playerName);
+      reply = reply.replace('[ACTION:FOOD]', '');
+    } else if (reply.includes('[ACTION:STOP]')) {
+      executeAction('stop', playerName);
+      reply = reply.replace('[ACTION:STOP]', '');
+    } else if (reply.includes('[ACTION:PROTECT]')) {
+      executeAction('protect', playerName);
+      reply = reply.replace('[ACTION:PROTECT]', '');
+    }
+
+    bot.chat(reply.trim());
+  } catch (error) {
+    bot.chat("Bhai, dimaag ghoom gaya mera thoda lag ho raha hai!");
   }
 }
 
-// Loop 2: NEW Continuous Food Hunting Loop
-async function foodHuntingLoop(username, mcData) {
-  if (!keepHuntingFood) return;
+// Low-level body controls executed by AI Commander
+function executeAction(actionType, playerName) {
+  const mcData = require('minecraft-data')(bot.version);
+  const player = bot.players[playerName];
 
-  const foodAnimals = ['cow', 'pig', 'sheep', 'chicken', 'rabbit'];
-  const filter = (entity) => foodAnimals.includes(entity.name) && entity.position.distanceTo(bot.entity.position) < 30;
-  const targetAnimal = bot.nearestEntity(filter);
-
-  // Agar aas-paas koi animal nahi bacha, toh bot player ke paas aakar saara khana de dega
-  if (!targetAnimal) {
-    bot.chat("Aas-paas ab koi jaanwar nahi dikh raha. Main saara khana lekar aapke paas aa raha hoon!");
-    keepHuntingFood = false;
-    deliverFood(username, mcData);
+  if (actionType === 'stop') {
+    keepCuttingWood = false; keepHuntingFood = false; pvpTarget = null; bot.pathfinder.setGoal(null); isDoingTask = false;
     return;
   }
 
-  // Weapon equip karna fast hunting ke liye
-  const weapon = bot.inventory.items().find(item => item.name.includes('sword') || item.name.includes('axe'));
-  if (weapon) { try { await bot.equip(weapon, 'hand'); } catch (e) {} }
+  isDoingTask = true;
+  keepCuttingWood = false;
+  keepHuntingFood = false;
 
-  // Attack the target animal
-  bot.pvp.attack(targetAnimal);
+  if (actionType === 'follow' && player?.entity) {
+    const movements = new Movements(bot, mcData); bot.pathfinder.setMovements(movements);
+    bot.pathfinder.setGoal(new goals.GoalFollow(player.entity, 1), true);
+  }
+  else if (actionType === 'wood') {
+    keepCuttingWood = true;
+    woodCuttingLoop(playerName, mcData);
+  }
+  else if (actionType === 'food') {
+    keepHuntingFood = true;
+    foodHuntingLoop(playerName, mcData);
+  }
+  else if (actionType === 'protect') {
+    const filter = e => e.type === 'hostile' && e.position.distanceTo(bot.entity.position) < 15;
+    const enemy = bot.nearestEntity(filter);
+    if (enemy) { pvpTarget = enemy; } else { isDoingTask = false; }
+  }
+}
 
-  // Check when the animal dies, then look for the next one
+// (Baki saare loops - woodCuttingLoop, foodHuntingLoop, startIdleBehavior pehle jaise hi kaam karenge)
+function startIdleBehavior() {
+  setInterval(() => {
+    if (isDoingTask || pvpTarget || keepCuttingWood || keepHuntingFood) return;
+    const mcData = require('minecraft-data')(bot.version);
+    const movements = new Movements(bot, mcData);
+    bot.pathfinder.setMovements(movements);
+    const randomAction = Math.random();
+    if (randomAction < 0.4) {
+      const rx = (Math.random() - 0.5) * 6; const rz = (Math.random() - 0.5) * 6;
+      const targetPos = bot.entity.position.offset(rx, 0, rz);
+      bot.pathfinder.setGoal(new goals.GoalGetToBlock(Math.floor(targetPos.x), Math.floor(targetPos.y), Math.floor(targetPos.z)));
+    }
+  }, 9000);
+}
+
+async function woodCuttingLoop(username, mcData) {
+  if (!keepCuttingWood) return;
+  const logBlock = bot.findBlock({ matching: [mcData.blocksByName['oak_log']?.id].filter(Boolean), maxDistance: 32 });
+  if (!logBlock) { keepCuttingWood = false; isDoingTask = false; return; }
+  try {
+    const movements = new Movements(bot, mcData); bot.pathfinder.setMovements(movements);
+    await bot.collectBlock.collect(logBlock);
+    setTimeout(() => { woodCuttingLoop(username, mcData); }, 1000);
+  } catch (err) { setTimeout(() => { woodCuttingLoop(username, mcData); }, 2000); }
+}
+
+async function foodHuntingLoop(username, mcData) {
+  if (!keepHuntingFood) return;
+  const filter = (entity) => ['cow', 'pig', 'sheep'].includes(entity.name) && entity.position.distanceTo(bot.entity.position) < 30;
+  const targetAnimal = bot.nearestEntity(filter);
+  if (!targetAnimal) { keepHuntingFood = false; isDoingTask = false; return; }
+  pvpTarget = targetAnimal;
   const checkDeath = setInterval(() => {
     if (!targetAnimal || targetAnimal.isValid === false || !keepHuntingFood) {
-      clearInterval(checkDeath);
-      bot.pvp.stop();
-
-      // Agar player ne beech mein 'stop' bol diya toh naya loop nahi chalega
-      if (!keepHuntingFood) return;
-
-      // 3 seconds ka wait taaki bot zameen se meat/drops utha sake, phir agla target dhoonde
-      setTimeout(() => {
-        foodHuntingLoop(username, mcData);
-      }, 3000);
+      clearInterval(checkDeath); pvpTarget = null;
+      if (keepHuntingFood) setTimeout(() => { foodHuntingLoop(username, mcData); }, 3000);
     }
   }, 500);
 }
 
-// Helper function to deliver food to the player
-async function deliverFood(username, mcData) {
-  const player = bot.players[username];
-  if (!player || !player.entity) return;
-
-  const movements = new Movements(bot, mcData);
-  bot.pathfinder.setMovements(movements);
-  await bot.pathfinder.goto(new goals.GoalFollow(player.entity, 2));
-
-  // Find all food items inside inventory to drop
-  const foodItems = bot.inventory.items().filter(item => 
-    item.name.includes('beef') || item.name.includes('porkchop') || 
-    item.name.includes('mutton') || item.name.includes('chicken') ||
-    item.name.includes('rabbit')
-  );
-
-  for (const food of foodItems) {
-    try { await bot.tossStack(food); } catch (e) {}
-  }
-  bot.chat("Ye lijiye aapka saari mehnat ka khana!");
-}
-
+bot.on('physicsTick', () => {
+  if (!pvpTarget) return;
+  if (!pvpTarget.isValid || pvpTarget.position.distanceTo(bot.entity.position) > 16) { pvpTarget = null; isDoingTask = false; return; }
+  const distance = bot.entity.position.distanceTo(pvpTarget.position);
+  if (distance <= 3.5 && bot.entity.onGround) bot.setControlState('jump', true); else bot.setControlState('jump', false);
+  if (distance <= 3.0 && bot.entity.velocity.y < 0 && !bot.entity.onGround) bot.attack(pvpTarget);
+});
 
 bot.on('chat', async (username, message) => {
   if (username === bot.username) return;
-
-  const msg = message.toLowerCase();
-  const mcData = require('minecraft-data')(bot.version);
-
-  // Agar koi bhi naya command aata hai, toh purane saare chalte hue loops turant band ho jayein
-  if (msg !== 'get some wood') keepCuttingWood = false;
-  if (msg !== 'get me some food') {
-    if (keepHuntingFood) {
-      keepHuntingFood = false;
-      bot.pvp.stop();
-    }
-  }
-
-  // 1. Basic Casual Chat
-  if (msg.includes('hello') || msg.includes('hi')) {
-    bot.chat(`Hey ${username}! What are we doing today?`);
-    return;
-  }
-  if (msg.includes('how are you')) {
-    bot.chat(`I'm doing great, just excited to play Minecraft with you!`);
-    return;
-  }
-
-  // 2. Follow Me
-  if (msg === 'come here' || msg === 'follow me') {
-    bot.chat("On my way!");
-    const player = bot.players[username];
-    if (!player || !player.entity) {
-      bot.chat("I can't see you!");
-      return;
-    }
-    const movements = new Movements(bot, mcData);
-    bot.pathfinder.setMovements(movements);
-    bot.pathfinder.setGoal(new goals.GoalFollow(player.entity, 1), true);
-  }
-
-  // 3. Stop everything
-  if (msg === 'stop') {
-    bot.chat("Theek hai, main sab kaam rok raha hoon.");
-    keepCuttingWood = false;
-    keepHuntingFood = false;
-    bot.pathfinder.setGoal(null);
-    bot.pvp.stop();
-  }
-
-  // 4. Continuous Wood Cutting
-  if (msg === 'get some wood') {
-    if (keepCuttingWood) { bot.chat("Main pehle se hi lakdi kaat raha hoon!"); return; }
-    bot.chat("Theek hai! Main tab tak lakdi kaat-ta rahunga jab tak aap 'stop' nahi bolte.");
-    keepCuttingWood = true;
-    woodCuttingLoop(username, mcData);
-  }
-
-  if (msg === 'give wood to me') {
-    const player = bot.players[username];
-    if (!player || !player.entity) return;
-    const woodItem = bot.inventory.items().find(item => item.name.includes('log'));
-    if (!woodItem) { bot.chat("Mere paas abhi koi lakdi nahi hai!"); return; }
-    const movements = new Movements(bot, mcData);
-    bot.pathfinder.setMovements(movements);
-    await bot.pathfinder.goto(new goals.GoalFollow(player.entity, 2));
-    try { await bot.tossStack(woodItem); bot.chat("Ye lijiye aapki saari lakdi!"); } catch (err) {}
-  }
-
-  // 5. Use Tools
-  if (msg.startsWith('use ')) {
-    const toolType = msg.replace('use ', '').trim();
-    const toolItem = bot.inventory.items().find(item => item.name.includes(toolType));
-    if (!toolItem) { bot.chat(`Mere paas ${toolType} nahi hai!`); return; }
-    try { await bot.equip(toolItem, 'hand'); bot.chat(`Holding ${toolType} now.`); } catch (err) {}
-  }
-
-  // 6. Drop Items
-  if (msg.startsWith('drop ')) {
-    const itemName = msg.replace('drop ', '').trim();
-    const itemToDrop = bot.inventory.items().find(item => item.name.includes(itemName));
-    if (!itemToDrop) { bot.chat(`Mere paas ${itemName} nahi hai drop karne ke liye.`); return; }
-    try { await bot.tossStack(itemToDrop); bot.chat(`Dropped ${itemName}!`); } catch (err) {}
-  }
-
-  // 7. UPGRADED: Continuous Food Hunting
-  if (msg === 'get me some food') {
-    if (keepHuntingFood) {
-      bot.chat("Main pehle se hi khana dhoond raha hoon!");
-      return;
-    }
-    bot.chat("Theek hai! Main aas-paas ke saare jaanwaron ko hunt karna shuru kar raha hoon jab tak aap 'stop' nahi bolte.");
-    keepHuntingFood = true;
-    foodHuntingLoop(username, mcData);
-  }
+  // Ab hum saari chat AI Controller ko bhejenge, vo khud decide karega kya karna hai!
+  aiBrainController(username, message);
 });
-  
