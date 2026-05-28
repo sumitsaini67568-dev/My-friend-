@@ -1,0 +1,14 @@
+{
+  "name": "minecraft-ai-friend",
+  "version": "1.0.0",
+  "main": "index.js",
+  "dependencies": {
+    "mineflayer": "^4.20.0",
+    "mineflayer-pathfinder": "^2.4.2",
+    "mineflayer-pvp": "^1.1.2",
+    "minecraft-data": "^3.57.0"
+  },
+  "scripts": {
+    "start": "node index.js"
+  }
+}
