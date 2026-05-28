@@ -4,7 +4,7 @@ const pvp = require('mineflayer-pvp').plugin;
 const collectBlock = require('mineflayer-collectblock').plugin;
 const https = require('https');
 
-const aiKey = process.env.GEMINI_API_KEY;
+const groqKey = process.env.GROQ_API_KEY;
 
 const bot = mineflayer.createBot({
   host: process.env.SERVER_IP,
@@ -23,15 +23,15 @@ let pvpTarget = null;
 let isDoingTask = false;
 
 bot.on('spawn', () => {
-  console.log("AI Friend Ready and Connected on Server!");
+  console.log("⚡ Groq AI Friend Ready and Connected on Server! ⚡");
   isDoingTask = false;
   startIdleBehavior();
 });
 
-// FIXED AI CONTROLLER WITH THE LATEST GEMINI 2.5 FLASH MODEL
+// ULTRA FAST GROQ AI CONTROLLER
 async function aiBrainController(playerName, userMessage) {
-  if (!aiKey) {
-    bot.chat("Bhai, meri API Key missing hai Railway variables mein!");
+  if (!groqKey) {
+    bot.chat("Bhai, GROQ_API_KEY missing hai Railway variables mein!");
     return;
   }
 
@@ -49,21 +49,21 @@ async function aiBrainController(playerName, userMessage) {
   Keep your reply casual, short (1-2 sentences max), and friendly like a real gaming teammate.`;
 
   const postData = JSON.stringify({
-    contents: [
-      {
-        role: "user",
-        parts: [
-          { text: `${systemPrompt}\n\nUser Message: ${userMessage}` }
-        ]
-      }
-    ]
+    model: "llama-3.3-70b-versatile",
+    messages: [
+      { role: "system", content: systemPrompt },
+      { role: "user", content: userMessage }
+    ],
+    temperature: 0.7,
+    max_tokens: 100
   });
 
   const options = {
-    hostname: 'generativelanguage.googleapis.com',
-    path: `/v1/models/gemini-2.5-flash:generateContent?key=${aiKey}`, // UPDATED TO GEMINI 2.5 FLASH
+    hostname: 'api.groq.com',
+    path: '/openai/v1/chat/completions',
     method: 'POST',
     headers: {
+      'Authorization': `Bearer ${groqKey}`,
       'Content-Type': 'application/json',
       'Content-Length': Buffer.byteLength(postData)
     }
@@ -76,8 +76,8 @@ async function aiBrainController(playerName, userMessage) {
       try {
         const data = JSON.parse(body);
         
-        if (data.candidates && data.candidates[0] && data.candidates[0].content && data.candidates[0].content.parts && data.candidates[0].content.parts[0]) {
-          let reply = data.candidates[0].content.parts[0].text.trim();
+        if (data.choices && data.choices[0] && data.choices[0].message) {
+          let reply = data.choices[0].message.content.trim();
 
           if (reply.includes('[ACTION:FOLLOW]')) {
             executeAction('follow', playerName);
@@ -99,22 +99,22 @@ async function aiBrainController(playerName, userMessage) {
           bot.chat(reply.trim());
         } else {
           if(data.error) {
-             console.error("Gemini API Error Detail:", data.error.message);
-             bot.chat(`Google API Error: ${data.error.message}`);
+             console.error("Groq API Error Detail:", data.error.message);
+             bot.chat(`Groq AI Error: ${data.error.message}`);
           } else {
-             bot.chat("Uff, dimaag thoda ghoom gaya!");
+             bot.chat("Uff, dimaag thoda lag ho gaya!");
           }
         }
       } catch (e) {
         console.error("JSON Parsing error:", e);
-        bot.chat("Kuch samajh nahi aaya bhai!");
+        bot.chat("Kuch alag hi response aaya bhai!");
       }
     });
   });
 
   req.on('error', (e) => {
     console.error("HTTPS Request Error:", e);
-    bot.chat("Bhai, network lag ho gaya!");
+    bot.chat("Bhai, network issue ho gaya!");
   });
 
   req.write(postData);
@@ -216,4 +216,3 @@ bot.on('chat', async (username, message) => {
   if (username === bot.username) return;
   aiBrainController(username, message);
 });
-        
