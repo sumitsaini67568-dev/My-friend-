@@ -4,11 +4,13 @@ const pvp = require('mineflayer-pvp').plugin;
 const collectBlock = require('mineflayer-collectblock').plugin;
 const { GoogleGenAI } = require('@google/generative-ai');
 
+// FIX: New correct way to initialize Gemini AI
 const aiKey = process.env.GEMINI_API_KEY;
 let aiModel = null;
 if (aiKey) {
-  const genAI = new GoogleGenAI({ apiKey: aiKey });
-  aiModel = genAI.getGenerativeModel({ model: "gemini-pro" });
+  // Changed from "new GoogleGenAI" to direct function call
+  const genAI = GoogleGenAI({ apiKey: aiKey });
+  aiModel = genAI.getGenerativeModel({ model: "gemini-1.5-flash" }); // Using faster and stable model
 }
 
 const bot = mineflayer.createBot({
@@ -32,7 +34,7 @@ bot.on('spawn', () => {
   startIdleBehavior();
 });
 
-// AI BRAIN: Yeh function decide karega ki chat ka reply kya dena hai AUR bot ko kya action lena hai
+// AI BRAIN CONTROLLER
 async function aiBrainController(playerName, userMessage) {
   if (!aiModel) return;
 
@@ -54,7 +56,6 @@ async function aiBrainController(playerName, userMessage) {
     const response = await result.response;
     let reply = response.text().trim();
 
-    // Action execution based on AI's decision
     if (reply.includes('[ACTION:FOLLOW]')) {
       executeAction('follow', playerName);
       reply = reply.replace('[ACTION:FOLLOW]', '');
@@ -74,11 +75,11 @@ async function aiBrainController(playerName, userMessage) {
 
     bot.chat(reply.trim());
   } catch (error) {
-    bot.chat("Bhai, dimaag ghoom gaya mera thoda lag ho raha hai!");
+    console.error(error);
+    bot.chat("Bhai, thoda lag ho gaya dimaag mein!");
   }
 }
 
-// Low-level body controls executed by AI Commander
 function executeAction(actionType, playerName) {
   const mcData = require('minecraft-data')(bot.version);
   const player = bot.players[playerName];
@@ -111,7 +112,6 @@ function executeAction(actionType, playerName) {
   }
 }
 
-// (Baki saare loops - woodCuttingLoop, foodHuntingLoop, startIdleBehavior pehle jaise hi kaam karenge)
 function startIdleBehavior() {
   setInterval(() => {
     if (isDoingTask || pvpTarget || keepCuttingWood || keepHuntingFood) return;
@@ -129,7 +129,7 @@ function startIdleBehavior() {
 
 async function woodCuttingLoop(username, mcData) {
   if (!keepCuttingWood) return;
-  const logBlock = bot.findBlock({ matching: [mcData.blocksByName['oak_log']?.id].filter(Boolean), maxDistance: 32 });
+  const logBlock = bot.findBlock({ matching: [mcData.blocksByName['oak_log']?.id, mcData.blocksByName['birch_log']?.id].filter(Boolean), maxDistance: 32 });
   if (!logBlock) { keepCuttingWood = false; isDoingTask = false; return; }
   try {
     const movements = new Movements(bot, mcData); bot.pathfinder.setMovements(movements);
@@ -162,6 +162,6 @@ bot.on('physicsTick', () => {
 
 bot.on('chat', async (username, message) => {
   if (username === bot.username) return;
-  // Ab hum saari chat AI Controller ko bhejenge, vo khud decide karega kya karna hai!
   aiBrainController(username, message);
 });
+                                              
