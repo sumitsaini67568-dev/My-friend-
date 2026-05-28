@@ -2,15 +2,16 @@ const mineflayer = require('mineflayer');
 const { pathfinder, Movements, goals } = require('mineflayer-pathfinder');
 const pvp = require('mineflayer-pvp').plugin;
 const collectBlock = require('mineflayer-collectblock').plugin;
+
+// PERFECT FIX: Google Gemini AI ka bilkul sahi aur naya connection method
 const { GoogleGenAI } = require('@google/generative-ai');
 
-// FIX: New correct way to initialize Gemini AI
 const aiKey = process.env.GEMINI_API_KEY;
 let aiModel = null;
 if (aiKey) {
-  // Changed from "new GoogleGenAI" to direct function call
-  const genAI = GoogleGenAI({ apiKey: aiKey });
-  aiModel = genAI.getGenerativeModel({ model: "gemini-1.5-flash" }); // Using faster and stable model
+  // New official way to initialize the client object
+  const genAI = new GoogleGenAI({ apiKey: aiKey });
+  aiModel = genAI.getGenerativeModel({ model: "gemini-1.5-flash" }); 
 }
 
 const bot = mineflayer.createBot({
@@ -164,4 +165,4 @@ bot.on('chat', async (username, message) => {
   if (username === bot.username) return;
   aiBrainController(username, message);
 });
-                                              
+                    
