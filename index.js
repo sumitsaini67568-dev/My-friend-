@@ -3,21 +3,10 @@ const { pathfinder, Movements, goals } = require('mineflayer-pathfinder');
 const pvp = require('mineflayer-pvp').plugin;
 const collectBlock = require('mineflayer-collectblock').plugin;
 
-// 100% SUCCESS SYNTAX: GoogleGenAI class ko direct nahi, balki GoogleGenAI function ko call karenge
-const { GoogleGenAI } = require('@google/generative-ai');
-
 const aiKey = process.env.GEMINI_API_KEY;
-let aiModel = null;
 
 if (aiKey) {
-  try {
-    // FIX: Hataya 'new' keyword aur bilkul sahi method use kiya
-    const genAI = GoogleGenAI({ apiKey: aiKey });
-    aiModel = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
-    console.log("🔥 GEMINI AI BRAIN CONNECTED SUCCESSFUL! 🔥");
-  } catch (e) {
-    console.log("AI Init Error: ", e.message);
-  }
+  console.log("🔥 GEMINI API KEY DETECTED! HTTP MODE ACTIVE 🔥");
 } else {
   console.log("❌ Error: GEMINI_API_KEY nahi mili Railway variables mein! ❌");
 }
@@ -44,10 +33,10 @@ bot.on('spawn', () => {
   startIdleBehavior();
 });
 
-// AI BRAIN CONTROLLER
+// FOOLPROOF HTTP AI CONTROLLER (No libraries required)
 async function aiBrainController(playerName, userMessage) {
-  if (!aiModel) {
-    bot.chat("Bhai, mera AI dimaag abhi configure nahi hua hai!");
+  if (!aiKey) {
+    bot.chat("Bhai, meri API Key missing hai Railway variables mein!");
     return;
   }
 
@@ -65,31 +54,45 @@ async function aiBrainController(playerName, userMessage) {
   Keep your reply casual, short (1-2 sentences max), and friendly like a real gaming teammate.`;
 
   try {
-    const result = await aiModel.generateContent([systemPrompt, userMessage]);
-    const response = await result.response;
-    let reply = response.text().trim();
+    // Calling Gemini directly via pure HTTP Fetch
+    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${aiKey}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: `${systemPrompt}\n\nUser said: ${userMessage}` }] }]
+      })
+    });
 
-    if (reply.includes('[ACTION:FOLLOW]')) {
-      executeAction('follow', playerName);
-      reply = reply.replace('[ACTION:FOLLOW]', '');
-    } else if (reply.includes('[ACTION:WOOD]')) {
-      executeAction('wood', playerName);
-      reply = reply.replace('[ACTION:WOOD]', '');
-    } else if (reply.includes('[ACTION:FOOD]')) {
-      executeAction('food', playerName);
-      reply = reply.replace('[ACTION:FOOD]', '');
-    } else if (reply.includes('[ACTION:STOP]')) {
-      executeAction('stop', playerName);
-      reply = reply.replace('[ACTION:STOP]', '');
-    } else if (reply.includes('[ACTION:PROTECT]')) {
-      executeAction('protect', playerName);
-      reply = reply.replace('[ACTION:PROTECT]', '');
+    const data = await response.json();
+    
+    if (data.candidates && data.candidates[0].content.parts[0].text) {
+      let reply = data.candidates[0].content.parts[0].text.trim();
+
+      // Action Processing
+      if (reply.includes('[ACTION:FOLLOW]')) {
+        executeAction('follow', playerName);
+        reply = reply.replace('[ACTION:FOLLOW]', '');
+      } else if (reply.includes('[ACTION:WOOD]')) {
+        executeAction('wood', playerName);
+        reply = reply.replace('[ACTION:WOOD]', '');
+      } else if (reply.includes('[ACTION:FOOD]')) {
+        executeAction('food', playerName);
+        reply = reply.replace('[ACTION:FOOD]', '');
+      } else if (reply.includes('[ACTION:STOP]')) {
+        executeAction('stop', playerName);
+        reply = reply.replace('[ACTION:STOP]', '');
+      } else if (reply.includes('[ACTION:PROTECT]')) {
+        executeAction('protect', playerName);
+        reply = reply.replace('[ACTION:PROTECT]', '');
+      }
+
+      bot.chat(reply.trim());
+    } else {
+      bot.chat("Uff, samajh nahi aaya bhai kya bola tune!");
     }
-
-    bot.chat(reply.trim());
   } catch (error) {
     console.error(error);
-    bot.chat("Bhai, dimaag ghoom gaya thoda lag ho raha hai!");
+    bot.chat("Dimaag thoda lag ho gaya, dobara bolna?");
   }
 }
 
@@ -125,6 +128,7 @@ function executeAction(actionType, playerName) {
   }
 }
 
+// Normal Player-like Idle Behavior
 function startIdleBehavior() {
   setInterval(() => {
     if (isDoingTask || pvpTarget || keepCuttingWood || keepHuntingFood) return;
@@ -188,3 +192,4 @@ bot.on('chat', async (username, message) => {
   if (username === bot.username) return;
   aiBrainController(username, message);
 });
+  
