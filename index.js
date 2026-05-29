@@ -22,7 +22,6 @@ function createMinecraftBot() {
     version: process.env.MINECRAFT_VERSION || '1.20.1'
   });
 
-  // Plugins load karein
   bot.loadPlugin(pathfinder);
   bot.loadPlugin(pvp);
   bot.loadPlugin(collectBlock);
@@ -38,26 +37,21 @@ function createMinecraftBot() {
     aiBrainController(username, message);
   });
 
-  // CRITICAL FIX: ECONNRESET aur Baaki Crashes se bachne ke liye handlers
   bot.on('error', (err) => {
     console.error(`[Bot Error Logged]: ${err.message}`);
   });
 
   bot.on('end', (reason) => {
-    console.log(`Bot server se disconnect ho gaya. Wajah: ${reason}. 5 seconds mein reconnect kar raha hu...`);
+    console.log(`Bot disconnect ho gaya (${reason}). Reconnecting in 5s...`);
     keepCuttingWood = false;
     keepHuntingFood = false;
     pvpTarget = null;
     isDoingTask = false;
-    
-    // 5 second baad auto reconnect trigger
-    setTimeout(() => {
-      createMinecraftBot();
-    }, 5000);
+    setTimeout(() => { createMinecraftBot(); }, 5000);
   });
 }
 
-// ULTRA FAST GROQ AI CONTROLLER
+// GROQ AI CONTROLLER WITH GIVE ACTION ADDED
 async function aiBrainController(playerName, userMessage) {
   if (!groqKey) {
     bot.chat("Bhai, GROQ_API_KEY missing hai Railway variables mein!");
@@ -68,13 +62,14 @@ async function aiBrainController(playerName, userMessage) {
   Analyze the user's message. You must reply in friendly Hinglish, but you also have the power to control your body using special commands.
   
   If the user wants you to do something, add exactly one of these tags at the very end of your reply:
-  - [ACTION:FOLLOW] if they want you to come, follow, or stay close.
-  - [ACTION:WOOD] if they want wood, logging, or chopping trees.
-  - [ACTION:FOOD] if they want food, meat, or hunting animals.
+  - [ACTION:FOLLOW] if they want you to come, follow, or stay close to them.
+  - [ACTION:WOOD] if they want you to mine/chop/gather wood from trees.
+  - [ACTION:FOOD] if they want you to hunt animals for food.
   - [ACTION:STOP] if they want you to stop any task or stay idle.
-  - [ACTION:PROTECT] if they are under attack or want you to fight mobs.
+  - [ACTION:PROTECT] if they want you to attack nearby monsters/mobs.
+  - [ACTION:GIVE] if they ask you to give them items, drop wood, throw resources, or hand over stuff from your inventory.
   
-  Example reply: "Haan bhai aaya tere paas! [ACTION:FOLLOW]"
+  Example reply: "Yeh le bhai, saari lakdi tere liye! [ACTION:GIVE]"
   Keep your reply casual, short (1-2 sentences max), and friendly like a real gaming teammate.`;
 
   const postData = JSON.stringify({
@@ -123,13 +118,12 @@ async function aiBrainController(playerName, userMessage) {
           } else if (reply.includes('[ACTION:PROTECT]')) {
             executeAction('protect', playerName);
             reply = reply.replace('[ACTION:PROTECT]', '');
+          } else if (reply.includes('[ACTION:GIVE]')) {
+            executeAction('give', playerName);
+            reply = reply.replace('[ACTION:GIVE]', '');
           }
 
           if (bot && bot.chat) bot.chat(reply.trim());
-        } else {
-          if(data.error) {
-             console.error("Groq API Error Detail:", data.error.message);
-          }
         }
       } catch (e) {
         console.error("JSON Parsing error:", e);
@@ -176,6 +170,30 @@ function executeAction(actionType, playerName) {
     const enemy = bot.nearestEntity(filter);
     if (enemy) { pvpTarget = enemy; } else { isDoingTask = false; }
   }
+  else if (actionType === 'give' && player?.entity) {
+    // Player ke paas aao pehle, fir item toss karo
+    const movements = new Movements(bot, mcData);
+    bot.pathfinder.setMovements(movements);
+    bot.pathfinder.setGoal(new goals.GoalFollow(player.entity, 2), true);
+    
+    // 3 second baad items drop karne ka check lagao taaki player tak pahunch jaye
+    setTimeout(async () => {
+      try {
+        const items = bot.inventory.items();
+        if (items.length === 0) {
+          bot.chat("Bhai meri inventory khali hai, pehle thoda kaatne ko bol!");
+        } else {
+          // Jo bhi items hain sab ek-ek karke player ke samne drop kar do
+          for (const item of items) {
+            await bot.tossStack(item);
+          }
+        }
+      } catch (err) {
+        console.error("Error tossing items:", err);
+      }
+      isDoingTask = false;
+    }, 3000);
+  }
 }
 
 function startIdleBehavior() {
@@ -209,7 +227,10 @@ function startIdleBehavior() {
 async function woodCuttingLoop(username, mcData) {
   if (!keepCuttingWood || !bot) return;
   const logBlock = bot.findBlock({ matching: [mcData.blocksByName['oak_log']?.id, mcData.blocksByName['birch_log']?.id].filter(Boolean), maxDistance: 32 });
-  if (!logBlock) { keepCuttingWood = false; isDoingTask = false; return; }
+  if (!logBlock) { 
+    bot.chat("Bhai aas-paas koi oak/birch log nahi mila!");
+    keepCuttingWood = false; isDoingTask = false; return; 
+  }
   try {
     const movements = new Movements(bot, mcData); bot.pathfinder.setMovements(movements);
     await bot.collectBlock.collect(logBlock);
@@ -231,7 +252,6 @@ async function foodHuntingLoop(username, mcData) {
   }, 500);
 }
 
-// Physics logic loop
 setInterval(() => {
   if (!bot || !pvpTarget) return;
   if (!pvpTarget.isValid || pvpTarget.position.distanceTo(bot.entity.position) > 16) { pvpTarget = null; isDoingTask = false; return; }
@@ -240,6 +260,5 @@ setInterval(() => {
   if (distance <= 3.0 && bot.entity.velocity.y < 0 && !bot.entity.onGround) bot.attack(pvpTarget);
 }, 50);
 
-// Bot execution initial trigger
 createMinecraftBot();
-                                                
+    
