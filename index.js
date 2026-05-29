@@ -51,26 +51,30 @@ function createMinecraftBot() {
   });
 }
 
-// GROQ AI CONTROLLER WITH GIVE ACTION ADDED
+// SUPER REINFORCED AI CONTROLLER (STRICT TAG ENFORCEMENT)
 async function aiBrainController(playerName, userMessage) {
   if (!groqKey) {
     bot.chat("Bhai, GROQ_API_KEY missing hai Railway variables mein!");
     return;
   }
 
+  // AI ke liye ekdam strict instructions taaki tag miss na ho
   const systemPrompt = `You are a human-like Minecraft player named ${bot.username}. You are playing with ${playerName}.
-  Analyze the user's message. You must reply in friendly Hinglish, but you also have the power to control your body using special commands.
+  Analyze the user's message and reply in casual, friendly Hinglish (1 short sentence).
   
-  If the user wants you to do something, add exactly one of these tags at the very end of your reply:
-  - [ACTION:FOLLOW] if they want you to come, follow, or stay close to them.
-  - [ACTION:WOOD] if they want you to mine/chop/gather wood from trees.
-  - [ACTION:FOOD] if they want you to hunt animals for food.
-  - [ACTION:STOP] if they want you to stop any task or stay idle.
-  - [ACTION:PROTECT] if they want you to attack nearby monsters/mobs.
-  - [ACTION:GIVE] if they ask you to give them items, drop wood, throw resources, or hand over stuff from your inventory.
+  CRITICAL RULE: You MUST append the exact correct action tag at the very end of your message based on what the user wants. Do not forget it.
   
-  Example reply: "Yeh le bhai, saari lakdi tere liye! [ACTION:GIVE]"
-  Keep your reply casual, short (1-2 sentences max), and friendly like a real gaming teammate.`;
+  Choose EXACTLY one tag from this list and put it at the end:
+  - If they want you to come to them, follow them, come close, or walk to them: You MUST include [ACTION:FOLLOW]
+  - If they want you to gather/cut/chop wood or logs: You MUST include [ACTION:WOOD]
+  - If they want food, meat, or want you to hunt animals: You MUST include [ACTION:FOOD]
+  - If they want you to stop, stand still, or cancel a task: You MUST include [ACTION:STOP]
+  - If they want protection or want you to fight mobs/monsters: You MUST include [ACTION:PROTECT]
+  - If they ask you to give/drop/toss/throw items or wood to them: You MUST include [ACTION:GIVE]
+  
+  Example Response 1: "Haan bhai aaya tere paas! [ACTION:FOLLOW]"
+  Example Response 2: "Chal lakdi kaatne chalta hu. [ACTION:WOOD]"
+  Example Response 3: "Yeh le saari lakdi pakad! [ACTION:GIVE]"`;
 
   const postData = JSON.stringify({
     model: "llama-3.3-70b-versatile",
@@ -78,8 +82,8 @@ async function aiBrainController(playerName, userMessage) {
       { role: "system", content: systemPrompt },
       { role: "user", content: userMessage }
     ],
-    temperature: 0.7,
-    max_tokens: 100
+    temperature: 0.5, // Temperature kam kiya taaki AI faltu bakwaas na kare aur strict rule follow kare
+    max_tokens: 80
   });
 
   const options = {
@@ -102,25 +106,42 @@ async function aiBrainController(playerName, userMessage) {
         
         if (data.choices && data.choices[0] && data.choices[0].message) {
           let reply = data.choices[0].message.content.trim();
+          console.log(`[Groq Raw Response]: ${reply}`); // Railway logs check karne ke liye
+
+          let actionTriggered = false;
 
           if (reply.includes('[ACTION:FOLLOW]')) {
             executeAction('follow', playerName);
             reply = reply.replace('[ACTION:FOLLOW]', '');
+            actionTriggered = true;
           } else if (reply.includes('[ACTION:WOOD]')) {
             executeAction('wood', playerName);
             reply = reply.replace('[ACTION:WOOD]', '');
+            actionTriggered = true;
           } else if (reply.includes('[ACTION:FOOD]')) {
             executeAction('food', playerName);
             reply = reply.replace('[ACTION:FOOD]', '');
+            actionTriggered = true;
           } else if (reply.includes('[ACTION:STOP]')) {
             executeAction('stop', playerName);
             reply = reply.replace('[ACTION:STOP]', '');
+            actionTriggered = true;
           } else if (reply.includes('[ACTION:PROTECT]')) {
             executeAction('protect', playerName);
             reply = reply.replace('[ACTION:PROTECT]', '');
+            actionTriggered = true;
           } else if (reply.includes('[ACTION:GIVE]')) {
             executeAction('give', playerName);
             reply = reply.replace('[ACTION:GIVE]', '');
+            actionTriggered = true;
+          }
+
+          // BACKUP SAFETY: Agar user ne "paas aa" bola aur AI tag lagana bhool gaya, toh code zabardasti handle karega!
+          if (!actionTriggered) {
+            const lowerMsg = userMessage.toLowerCase();
+            if (lowerMsg.includes('paas') || lowerMsg.includes('aaja') || lowerMsg.includes('come') || lowerMsg.includes('follow')) {
+              executeAction('follow', playerName);
+            }
           }
 
           if (bot && bot.chat) bot.chat(reply.trim());
@@ -154,7 +175,10 @@ function executeAction(actionType, playerName) {
   keepHuntingFood = false;
 
   if (actionType === 'follow' && player?.entity) {
-    const movements = new Movements(bot, mcData); bot.pathfinder.setMovements(movements);
+    console.log(`[Action Executing]: Following player ${playerName}`);
+    const movements = new Movements(bot, mcData); 
+    movements.canDig = false; // Raste mein block todne na lag jaye
+    bot.pathfinder.setMovements(movements);
     bot.pathfinder.setGoal(new goals.GoalFollow(player.entity, 1), true);
   }
   else if (actionType === 'wood') {
@@ -171,28 +195,21 @@ function executeAction(actionType, playerName) {
     if (enemy) { pvpTarget = enemy; } else { isDoingTask = false; }
   }
   else if (actionType === 'give' && player?.entity) {
-    // Player ke paas aao pehle, fir item toss karo
     const movements = new Movements(bot, mcData);
     bot.pathfinder.setMovements(movements);
     bot.pathfinder.setGoal(new goals.GoalFollow(player.entity, 2), true);
     
-    // 3 second baad items drop karne ka check lagao taaki player tak pahunch jaye
     setTimeout(async () => {
       try {
         const items = bot.inventory.items();
         if (items.length === 0) {
-          bot.chat("Bhai meri inventory khali hai, pehle thoda kaatne ko bol!");
+          bot.chat("Bhai meri inventory khali hai!");
         } else {
-          // Jo bhi items hain sab ek-ek karke player ke samne drop kar do
-          for (const item of items) {
-            await bot.tossStack(item);
-          }
+          for (const item of items) { await bot.tossStack(item); }
         }
-      } catch (err) {
-        console.error("Error tossing items:", err);
-      }
+      } catch (err) { console.error(err); }
       isDoingTask = false;
-    }, 3000);
+    }, 2500);
   }
 }
 
@@ -228,7 +245,7 @@ async function woodCuttingLoop(username, mcData) {
   if (!keepCuttingWood || !bot) return;
   const logBlock = bot.findBlock({ matching: [mcData.blocksByName['oak_log']?.id, mcData.blocksByName['birch_log']?.id].filter(Boolean), maxDistance: 32 });
   if (!logBlock) { 
-    bot.chat("Bhai aas-paas koi oak/birch log nahi mila!");
+    bot.chat("Bhai aas-paas koi lakdi nahi mili!");
     keepCuttingWood = false; isDoingTask = false; return; 
   }
   try {
@@ -261,4 +278,4 @@ setInterval(() => {
 }, 50);
 
 createMinecraftBot();
-    
+                
