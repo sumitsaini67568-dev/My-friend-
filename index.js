@@ -27,7 +27,7 @@ function createMinecraftBot() {
   bot.loadPlugin(collectBlock);
 
   bot.on('spawn', () => {
-    console.log("⚡ Groq AI Friend Ready and Connected on Server! ⚡");
+    console.log("⚡ Groq OP AI Friend Ready and Connected! ⚡");
     isDoingTask = false;
     startIdleBehavior();
   });
@@ -51,30 +51,30 @@ function createMinecraftBot() {
   });
 }
 
-// SUPER REINFORCED AI CONTROLLER (STRICT TAG ENFORCEMENT)
+// AI CONTROLLER WITH TIME CONTROL ADDED
 async function aiBrainController(playerName, userMessage) {
   if (!groqKey) {
     bot.chat("Bhai, GROQ_API_KEY missing hai Railway variables mein!");
     return;
   }
 
-  // AI ke liye ekdam strict instructions taaki tag miss na ho
-  const systemPrompt = `You are a human-like Minecraft player named ${bot.username}. You are playing with ${playerName}.
+  const systemPrompt = `You are a human-like Minecraft player named ${bot.username}. You have OPERATOR (/op) permissions.
   Analyze the user's message and reply in casual, friendly Hinglish (1 short sentence).
   
-  CRITICAL RULE: You MUST append the exact correct action tag at the very end of your message based on what the user wants. Do not forget it.
+  CRITICAL RULE: You MUST append the exact correct action tag at the very end of your message based on what the user wants.
   
-  Choose EXACTLY one tag from this list and put it at the end:
-  - If they want you to come to them, follow them, come close, or walk to them: You MUST include [ACTION:FOLLOW]
-  - If they want you to gather/cut/chop wood or logs: You MUST include [ACTION:WOOD]
-  - If they want food, meat, or want you to hunt animals: You MUST include [ACTION:FOOD]
-  - If they want you to stop, stand still, or cancel a task: You MUST include [ACTION:STOP]
-  - If they want protection or want you to fight mobs/monsters: You MUST include [ACTION:PROTECT]
-  - If they ask you to give/drop/toss/throw items or wood to them: You MUST include [ACTION:GIVE]
+  Choose EXACTLY one tag from this list:
+  - If they want you to come to them/follow them: [ACTION:FOLLOW]
+  - If they want you to gather/cut wood: [ACTION:WOOD]
+  - If they want food/meat/hunt animals: [ACTION:FOOD]
+  - If they want you to stop/cancel a task: [ACTION:STOP]
+  - If they want protection/fight monsters: [ACTION:PROTECT]
+  - If they ask you to give/drop/toss items: [ACTION:GIVE]
+  - If they want you to change the time to DAY, morning, or noon: You MUST include [ACTION:TIME:day]
+  - If they want you to change the time to NIGHT, midnight, or evening: You MUST include [ACTION:TIME:night]
   
-  Example Response 1: "Haan bhai aaya tere paas! [ACTION:FOLLOW]"
-  Example Response 2: "Chal lakdi kaatne chalta hu. [ACTION:WOOD]"
-  Example Response 3: "Yeh le saari lakdi pakad! [ACTION:GIVE]"`;
+  Example Response 1: "Chal bhai, din kar deta hu jaldi se! [ACTION:TIME:day]"
+  Example Response 2: "Raat kar raha hu, zombies se bach ke rehna. [ACTION:TIME:night]"`;
 
   const postData = JSON.stringify({
     model: "llama-3.3-70b-versatile",
@@ -82,7 +82,7 @@ async function aiBrainController(playerName, userMessage) {
       { role: "system", content: systemPrompt },
       { role: "user", content: userMessage }
     ],
-    temperature: 0.5, // Temperature kam kiya taaki AI faltu bakwaas na kare aur strict rule follow kare
+    temperature: 0.5,
     max_tokens: 80
   });
 
@@ -106,11 +106,20 @@ async function aiBrainController(playerName, userMessage) {
         
         if (data.choices && data.choices[0] && data.choices[0].message) {
           let reply = data.choices[0].message.content.trim();
-          console.log(`[Groq Raw Response]: ${reply}`); // Railway logs check karne ke liye
+          console.log(`[Groq Raw]: ${reply}`);
 
           let actionTriggered = false;
 
-          if (reply.includes('[ACTION:FOLLOW]')) {
+          // TIME CONTROL COMMAND DETECTIONS
+          if (reply.includes('[ACTION:TIME:day]')) {
+            bot.chat('/time set day');
+            reply = reply.replace('[ACTION:TIME:day]', '');
+            actionTriggered = true;
+          } else if (reply.includes('[ACTION:TIME:night]')) {
+            bot.chat('/time set night');
+            reply = reply.replace('[ACTION:TIME:night]', '');
+            actionTriggered = true;
+          } else if (reply.includes('[ACTION:FOLLOW]')) {
             executeAction('follow', playerName);
             reply = reply.replace('[ACTION:FOLLOW]', '');
             actionTriggered = true;
@@ -136,11 +145,15 @@ async function aiBrainController(playerName, userMessage) {
             actionTriggered = true;
           }
 
-          // BACKUP SAFETY: Agar user ne "paas aa" bola aur AI tag lagana bhool gaya, toh code zabardasti handle karega!
+          // BACKUP REGEX SAFETY SWITCHES
           if (!actionTriggered) {
             const lowerMsg = userMessage.toLowerCase();
             if (lowerMsg.includes('paas') || lowerMsg.includes('aaja') || lowerMsg.includes('come') || lowerMsg.includes('follow')) {
               executeAction('follow', playerName);
+            } else if ((lowerMsg.includes('time') || lowerMsg.includes('set') || lowerMsg.includes('kar')) && (lowerMsg.includes('day') || lowerMsg.includes('subah') || lowerMsg.includes('din'))) {
+              bot.chat('/time set day');
+            } else if ((lowerMsg.includes('time') || lowerMsg.includes('set') || lowerMsg.includes('kar')) && (lowerMsg.includes('night') || lowerMsg.includes('raat')) || lowerMsg.includes('dark')) {
+              bot.chat('/time set night');
             }
           }
 
@@ -175,9 +188,8 @@ function executeAction(actionType, playerName) {
   keepHuntingFood = false;
 
   if (actionType === 'follow' && player?.entity) {
-    console.log(`[Action Executing]: Following player ${playerName}`);
     const movements = new Movements(bot, mcData); 
-    movements.canDig = false; // Raste mein block todne na lag jaye
+    movements.canDig = false;
     bot.pathfinder.setMovements(movements);
     bot.pathfinder.setGoal(new goals.GoalFollow(player.entity, 1), true);
   }
@@ -278,4 +290,4 @@ setInterval(() => {
 }, 50);
 
 createMinecraftBot();
-                
+        
