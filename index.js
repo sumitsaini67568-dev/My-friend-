@@ -6,27 +6,56 @@ const https = require('https');
 
 const groqKey = process.env.GROQ_API_KEY;
 
-const bot = mineflayer.createBot({
-  host: process.env.SERVER_IP,
-  port: parseInt(process.env.SERVER_PORT) || 25565,
-  username: process.env.BOT_NAME || 'AIFriend',
-  version: process.env.MINECRAFT_VERSION || '1.20.1'
-});
-
-bot.loadPlugin(pathfinder);
-bot.loadPlugin(pvp);
-bot.loadPlugin(collectBlock);
-
+let bot;
 let keepCuttingWood = false;
 let keepHuntingFood = false;
 let pvpTarget = null;
 let isDoingTask = false;
 
-bot.on('spawn', () => {
-  console.log("⚡ Groq AI Friend Ready and Connected on Server! ⚡");
-  isDoingTask = false;
-  startIdleBehavior();
-});
+function createMinecraftBot() {
+  console.log("Connecting to Minecraft Server...");
+  
+  bot = mineflayer.createBot({
+    host: process.env.SERVER_IP,
+    port: parseInt(process.env.SERVER_PORT) || 25565,
+    username: process.env.BOT_NAME || 'AIFriend',
+    version: process.env.MINECRAFT_VERSION || '1.20.1'
+  });
+
+  // Plugins load karein
+  bot.loadPlugin(pathfinder);
+  bot.loadPlugin(pvp);
+  bot.loadPlugin(collectBlock);
+
+  bot.on('spawn', () => {
+    console.log("⚡ Groq AI Friend Ready and Connected on Server! ⚡");
+    isDoingTask = false;
+    startIdleBehavior();
+  });
+
+  bot.on('chat', async (username, message) => {
+    if (username === bot.username) return;
+    aiBrainController(username, message);
+  });
+
+  // CRITICAL FIX: ECONNRESET aur Baaki Crashes se bachne ke liye handlers
+  bot.on('error', (err) => {
+    console.error(`[Bot Error Logged]: ${err.message}`);
+  });
+
+  bot.on('end', (reason) => {
+    console.log(`Bot server se disconnect ho gaya. Wajah: ${reason}. 5 seconds mein reconnect kar raha hu...`);
+    keepCuttingWood = false;
+    keepHuntingFood = false;
+    pvpTarget = null;
+    isDoingTask = false;
+    
+    // 5 second baad auto reconnect trigger
+    setTimeout(() => {
+      createMinecraftBot();
+    }, 5000);
+  });
+}
 
 // ULTRA FAST GROQ AI CONTROLLER
 async function aiBrainController(playerName, userMessage) {
@@ -96,25 +125,20 @@ async function aiBrainController(playerName, userMessage) {
             reply = reply.replace('[ACTION:PROTECT]', '');
           }
 
-          bot.chat(reply.trim());
+          if (bot && bot.chat) bot.chat(reply.trim());
         } else {
           if(data.error) {
              console.error("Groq API Error Detail:", data.error.message);
-             bot.chat(`Groq AI Error: ${data.error.message}`);
-          } else {
-             bot.chat("Uff, dimaag thoda lag ho gaya!");
           }
         }
       } catch (e) {
         console.error("JSON Parsing error:", e);
-        bot.chat("Kuch alag hi response aaya bhai!");
       }
     });
   });
 
   req.on('error', (e) => {
     console.error("HTTPS Request Error:", e);
-    bot.chat("Bhai, network issue ho gaya!");
   });
 
   req.write(postData);
@@ -122,6 +146,7 @@ async function aiBrainController(playerName, userMessage) {
 }
 
 function executeAction(actionType, playerName) {
+  if (!bot || !bot.version) return;
   const mcData = require('minecraft-data')(bot.version);
   const player = bot.players[playerName];
 
@@ -154,8 +179,10 @@ function executeAction(actionType, playerName) {
 }
 
 function startIdleBehavior() {
-  setInterval(() => {
+  const idleInterval = setInterval(() => {
+    if (!bot || !bot.version || !bot.entity) { clearInterval(idleInterval); return; }
     if (isDoingTask || pvpTarget || keepCuttingWood || keepHuntingFood) return;
+    
     const mcData = require('minecraft-data')(bot.version);
     const movements = new Movements(bot, mcData);
     bot.pathfinder.setMovements(movements);
@@ -174,13 +201,13 @@ function startIdleBehavior() {
       bot.pathfinder.setGoal(new goals.GoalGetToBlock(Math.floor(targetPos.x), Math.floor(targetPos.y), Math.floor(targetPos.z)));
     } else if (randomAction < 0.6) {
       bot.setControlState('jump', true);
-      setTimeout(() => bot.setControlState('jump', false), 200);
+      setTimeout(() => { if(bot) bot.setControlState('jump', false); }, 200);
     }
   }, 8000);
 }
 
 async function woodCuttingLoop(username, mcData) {
-  if (!keepCuttingWood) return;
+  if (!keepCuttingWood || !bot) return;
   const logBlock = bot.findBlock({ matching: [mcData.blocksByName['oak_log']?.id, mcData.blocksByName['birch_log']?.id].filter(Boolean), maxDistance: 32 });
   if (!logBlock) { keepCuttingWood = false; isDoingTask = false; return; }
   try {
@@ -191,28 +218,28 @@ async function woodCuttingLoop(username, mcData) {
 }
 
 async function foodHuntingLoop(username, mcData) {
-  if (!keepHuntingFood) return;
+  if (!keepHuntingFood || !bot) return;
   const filter = (entity) => ['cow', 'pig', 'sheep', 'chicken'].includes(entity.name) && entity.position.distanceTo(bot.entity.position) < 30;
   const targetAnimal = bot.nearestEntity(filter);
   if (!targetAnimal) { keepHuntingFood = false; isDoingTask = false; return; }
   pvpTarget = targetAnimal;
   const checkDeath = setInterval(() => {
-    if (!targetAnimal || targetAnimal.isValid === false || !keepHuntingFood) {
+    if (!targetAnimal || targetAnimal.isValid === false || !keepHuntingFood || !bot) {
       clearInterval(checkDeath); pvpTarget = null;
       if (keepHuntingFood) setTimeout(() => { foodHuntingLoop(username, mcData); }, 3000);
     }
   }, 500);
 }
 
-bot.on('physicsTick', () => {
-  if (!pvpTarget) return;
+// Physics logic loop
+setInterval(() => {
+  if (!bot || !pvpTarget) return;
   if (!pvpTarget.isValid || pvpTarget.position.distanceTo(bot.entity.position) > 16) { pvpTarget = null; isDoingTask = false; return; }
   const distance = bot.entity.position.distanceTo(pvpTarget.position);
   if (distance <= 3.5 && bot.entity.onGround) bot.setControlState('jump', true); else bot.setControlState('jump', false);
   if (distance <= 3.0 && bot.entity.velocity.y < 0 && !bot.entity.onGround) bot.attack(pvpTarget);
-});
+}, 50);
 
-bot.on('chat', async (username, message) => {
-  if (username === bot.username) return;
-  aiBrainController(username, message);
-});
+// Bot execution initial trigger
+createMinecraftBot();
+                                                
